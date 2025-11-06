@@ -1,0 +1,431 @@
+openapi: 3.0.3
+info:
+  title: CMF Open Finance Mock – Consents, Accounts, Transactions & Events
+  version: "1.0.0"
+  description: |
+    Especificación de ejemplo inspirada en NCG 514 / Anexo Técnico N°3 (CMF Chile),
+    para demos con Kong + AI MCP Proxy. No es oficial; los endpoints y modelos son de referencia.
+servers:
+  - url: http://localhost:8000/cmf
+    description: Kong Gateway (proxy)
+  - url: http://localhost:3000
+    description: Mock backend directo (FastAPI)
+tags:
+  - name: Consents
+  - name: Accounts
+  - name: Transactions
+  - name: Events
+security:
+  - bearerAuth: []
+  - ApiKeyAuth: []
+paths:
+  /consents:
+    post:
+      tags: [Consents]
+      summary: Crear consentimiento
+      operationId: consentCreate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConsentCreateRequest"
+            examples:
+              default:
+                value:
+                  subject:
+                    document: "11111111-1"
+                    document_type: "RUT"
+                  purpose: "OFAC-demo"
+                  scopes: ["accounts.read", "transactions.read"]
+                  ttl_seconds: 86400
+      responses:
+        "201":
+          description: Consentimiento creado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsentCreateResponse"
+              examples:
+                default:
+                  value:
+                    consent_id: "c-1"
+                    status: "ACTIVE"
+                    created_at: "2025-11-06T10:00:00Z"
+                    expires_at: "2025-11-07T10:00:00Z"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+  /consents/{consent_id}:
+    get:
+      tags: [Consents]
+      summary: Obtener consentimiento por ID
+      operationId: consentGet
+      parameters:
+        - $ref: "#/components/parameters/ConsentId"
+      responses:
+        "200":
+          description: Consentimiento
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Consent"
+              examples:
+                default:
+                  value:
+                    consent_id: "c-1"
+                    status: "ACTIVE"
+                    subject:
+                      document: "11111111-1"
+                      document_type: "RUT"
+                    purpose: "OFAC-demo"
+                    scopes: ["accounts.read","transactions.read"]
+                    created_at: "2025-11-06T10:00:00Z"
+                    expires_at: "2025-11-07T10:00:00Z"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Consents]
+      summary: Revocar consentimiento
+      operationId: consentRevoke
+      parameters:
+        - $ref: "#/components/parameters/ConsentId"
+      responses:
+        "200":
+          description: Consentimiento revocado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsentRevokeResponse"
+              examples:
+                default:
+                  value:
+                    consent_id: "c-1"
+                    status: "REVOKED"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /accounts:
+    get:
+      tags: [Accounts]
+      summary: Listar cuentas por documento (RUT)
+      operationId: accountsList
+      parameters:
+        - $ref: "#/components/parameters/Document"
+        - $ref: "#/components/parameters/ConsentHeader"
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+      responses:
+        "200":
+          description: Lista de cuentas del titular
+          headers:
+            X-Next-Cursor:
+              description: Cursor para la siguiente página (si aplica)
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Account" }
+              examples:
+                default:
+                  value:
+                    - account_id: "1111-01"
+                      holder: "11111111-1"
+                      product_type: "CHECKING"
+                      institution_id: "BANK-XYZ"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /accounts/{account_id}/balance:
+    get:
+      tags: [Accounts]
+      summary: Obtener saldo de cuenta
+      operationId: accountBalance
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/ConsentHeader"
+      responses:
+        "200":
+          description: Saldo actual
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Balance"
+              examples:
+                default:
+                  value:
+                    account_id: "1111-01"
+                    balance: 150000
+                    currency: "CLP"
+                    as_of: "2025-11-06T10:00:00Z"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /accounts/{account_id}/transactions:
+    get:
+      tags: [Transactions]
+      summary: Listar transacciones de una cuenta
+      operationId: transactionsList
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/ConsentHeader"
+        - $ref: "#/components/parameters/FromDate"
+        - $ref: "#/components/parameters/ToDate"
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageCursor"
+      responses:
+        "200":
+          description: Lista de transacciones
+          headers:
+            X-Next-Cursor:
+              description: Cursor para la siguiente página (si aplica)
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Transaction" }
+              examples:
+                default:
+                  value:
+                    - date: "2025-01-01"
+                      amount: -20000
+                      currency: "CLP"
+                      description: "Compra supermercado"
+                    - date: "2025-01-03"
+                      amount: 500000
+                      currency: "CLP"
+                      description: "Depósito nómina"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /events:
+    post:
+      tags: [Events]
+      summary: Emitir evento de auditoría/negocio
+      operationId: eventsEmit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Event"
+            examples:
+              default:
+                value:
+                  type: "consent.updated"
+                  payload:
+                    consent_id: "c-1"
+                    status: "ACTIVE"
+      responses:
+        "200":
+          description: Evento aceptado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventAck"
+              examples:
+                default:
+                  value:
+                    status: "OK"
+                    received:
+                      type: "consent.updated"
+                      payload:
+                        consent_id: "c-1"
+                        status: "ACTIVE"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: apikey
+
+  parameters:
+    ConsentId:
+      name: consent_id
+      in: path
+      required: true
+      schema: { type: string }
+      description: ID del consentimiento
+    AccountId:
+      name: account_id
+      in: path
+      required: true
+      schema: { type: string }
+      description: ID de la cuenta
+    Document:
+      name: document
+      in: query
+      required: true
+      schema: { type: string }
+      description: RUT del titular (formato libre para mock)
+    ConsentHeader:
+      name: x-consent-id
+      in: header
+      required: false
+      schema: { type: string }
+      description: Consent ID vigente (cuando aplica)
+    FromDate:
+      name: from
+      in: query
+      required: false
+      schema:
+        type: string
+        format: date
+      description: Fecha inicio (YYYY-MM-DD)
+    ToDate:
+      name: to
+      in: query
+      required: false
+      schema:
+        type: string
+        format: date
+      description: Fecha fin (YYYY-MM-DD)
+    PageLimit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+      description: Tamaño de página
+    PageCursor:
+      name: cursor
+      in: query
+      required: false
+      schema: { type: string }
+      description: Cursor para paginación
+
+  responses:
+    BadRequest:
+      description: Solicitud inválida
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            default:
+              value:
+                code: "BAD_REQUEST"
+                message: "Parámetros inválidos"
+    Unauthorized:
+      description: No autorizado
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            default:
+              value:
+                code: "UNAUTHORIZED"
+                message: "Token o API key inválida"
+    NotFound:
+      description: Recurso no encontrado
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            default:
+              value:
+                code: "NOT_FOUND"
+                message: "No existe"
+
+  schemas:
+    ConsentCreateRequest:
+      type: object
+      required: [subject, purpose, scopes, ttl_seconds]
+      properties:
+        subject:
+          type: object
+          required: [document, document_type]
+          properties:
+            document: { type: string, example: "11111111-1" }
+            document_type: { type: string, example: "RUT" }
+        purpose:
+          type: string
+          example: "OFAC-demo"
+        scopes:
+          type: array
+          items: { type: string }
+          example: ["accounts.read","transactions.read"]
+        ttl_seconds:
+          type: integer
+          example: 86400
+    ConsentCreateResponse:
+      type: object
+      required: [consent_id, status, created_at, expires_at]
+      properties:
+        consent_id: { type: string, example: "c-1" }
+        status: { type: string, enum: ["ACTIVE","REVOKED"], example: "ACTIVE" }
+        created_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+    Consent:
+      allOf:
+        - $ref: "#/components/schemas/ConsentCreateRequest"
+        - type: object
+          required: [consent_id, status, created_at, expires_at]
+          properties:
+            consent_id: { type: string }
+            status: { type: string, enum: ["ACTIVE","REVOKED"] }
+            created_at: { type: string, format: date-time }
+            expires_at: { type: string, format: date-time }
+    ConsentRevokeResponse:
+      type: object
+      properties:
+        consent_id: { type: string }
+        status: { type: string, enum: ["REVOKED"] }
+    Account:
+      type: object
+      required: [account_id, holder, product_type]
+      properties:
+        account_id: { type: string, example: "1111-01" }
+        holder: { type: string, example: "11111111-1" }
+        product_type: { type: string, example: "CHECKING" }
+        institution_id: { type: string, example: "BANK-XYZ" }
+    Balance:
+      type: object
+      required: [account_id, balance, currency, as_of]
+      properties:
+        account_id: { type: string }
+        balance: { type: number, format: double, example: 150000 }
+        currency: { type: string, example: "CLP" }
+        as_of: { type: string, format: date-time }
+    Transaction:
+      type: object
+      required: [date, amount, description]
+      properties:
+        date: { type: string, format: date, example: "2025-01-01" }
+        amount: { type: number, format: double, example: -20000 }
+        currency: { type: string, example: "CLP" }
+        description: { type: string, example: "Compra supermercado" }
+        merchant: { type: string, example: "SUPERMERCADO XYZ" }
+        category: { type: string, example: "Groceries" }
+    Event:
+      type: object
+      required: [type, payload]
+      properties:
+        type: { type: string, example: "consent.updated" }
+        payload:
+          type: object
+          additionalProperties: true
+    EventAck:
+      type: object
+      properties:
+        status: { type: string, example: "OK" }
+        received:
+          $ref: "#/components/schemas/Event"
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string }
+        message: { type: string }
